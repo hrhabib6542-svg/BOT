@@ -4,23 +4,24 @@ const { createCanvas, loadImage } = require("canvas");
 const axios = require("axios");
 
 module.exports.config = {
-  name: "leaderboard",
-  aliases: ["lb", "top"],
-  version: "6.0",
-  author: "MOHAMMAD AKASH",
+  name: "topmsg",
+  aliases: ["msglb", "msgtop", "topmessage"],
+  version: "2.0",
+  author: "HABIB",
   countDown: 10,
   role: 0,
-  shortDescription: "Top 10 richest users",
-  category: "economy"
+  shortDescription: "Top 10 message count leaderboard",
+  category: "box chat"
 };
 
-function formatBalance(num) {
-  if (num >= 1e9) return (num / 1e9).toFixed(1) + "B";
-  if (num >= 1e6) return (num / 1e6).toFixed(1) + "M";
-  if (num >= 1e3) return (num / 1e3).toFixed(1) + "K";
+// মেসেজ কাউন্ট ফরম্যাট করার ফাংশন (1.5K, 2.3M ইত্যাদি)
+function formatCount(num) {
+  if (num >= 1e6) return (num / 1e6).toFixed(2) + "M";
+  if (num >= 1e3) return (num / 1e3).toFixed(2) + "K";
   return String(num);
 }
 
+// রাউন্ডেড রেকটেঙ্গেল ড্র করার ফাংশন
 function roundRect(ctx, x, y, w, h, r, fill = false, stroke = false) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -37,10 +38,11 @@ function roundRect(ctx, x, y, w, h, r, fill = false, stroke = false) {
   if (stroke) ctx.stroke();
 }
 
+// প্রোফাইল পিকচার ডাউনলোড করার ফাংশন
 async function loadAvatar(uid, cacheDir) {
   const tmpPath = path.join(cacheDir, `av_${uid}_${Date.now()}.png`);
   try {
-    const imageUrl = `https://graph.facebook.com/${uid}/picture?height=200&width=200&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662`;
+    const imageUrl = `https://graph.facebook.com/${uid}/picture?height=300&width=300&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662`;
     const response = await axios.get(imageUrl, { responseType: "arraybuffer" });
     await fs.writeFile(tmpPath, response.data);
     const img = await loadImage(tmpPath);
@@ -52,147 +54,226 @@ async function loadAvatar(uid, cacheDir) {
   }
 }
 
-function drawAvatar(ctx, avatar, name, ax, ay, size, isTop3) {
+// অবতার ড্র করার ফাংশন
+function drawCircularAvatar(ctx, img, name, x, y, size, borderColor = "#ffffff") {
   ctx.save();
   ctx.beginPath();
-  ctx.arc(ax + size / 2, ay + size / 2, size / 2, 0, Math.PI * 2);
+  ctx.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
   ctx.clip();
 
-  if (avatar) {
-    ctx.drawImage(avatar, ax, ay, size, size);
+  if (img) {
+    ctx.drawImage(img, x, y, size, size);
   } else {
-    const colors = ["#1565c0", "#6a1b9a", "#00695c", "#bf360c", "#4e342e", "#37474f"];
-    ctx.fillStyle = colors[name.charCodeAt(0) % colors.length];
-    ctx.fillRect(ax, ay, size, size);
+    const colors = ["#e91e63", "#9c27b0", "#673ab7", "#3f51b5", "#00bcd4", "#009688"];
+    ctx.fillStyle = colors[(name || "?").charCodeAt(0) % colors.length];
+    ctx.fillRect(x, y, size, size);
     ctx.font = `bold ${Math.floor(size * 0.45)}px Arial`;
     ctx.fillStyle = "#ffffff";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText((name || "?")[0].toUpperCase(), ax + size / 2, ay + size / 2 + 2);
+    ctx.fillText((name || "?")[0].toUpperCase(), x + size / 2, y + size / 2);
   }
-
   ctx.restore();
-  ctx.strokeStyle = isTop3 ? "#ffd700" : "rgba(255,255,255,0.3)";
-  ctx.lineWidth = isTop3 ? 2.5 : 1.5;
+
+  // বর্ডার ড্র করা
+  ctx.strokeStyle = borderColor;
+  ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.arc(ax + size / 2, ay + size / 2, size / 2 + 2, 0, Math.PI * 2);
+  ctx.arc(x + size / 2, y + size / 2, size / 2 + 1, 0, Math.PI * 2);
   ctx.stroke();
 }
 
-module.exports.onStart = async function ({ api, event, usersData }) {
+module.exports.onStart = async function ({ api, event, threadsData, usersData }) {
   const { threadID, messageID } = event;
 
-  const allUsers = await usersData.getAll();
-  const sorted = Object.entries(allUsers)
-    .map(([uid, data]) => ({
-      uid,
-      name: data.name || "Unknown",
-      money: data?.data?.money ?? 0
+  const threadData = await threadsData.get(threadID);
+  if (!threadData || !threadData.members) {
+    return api.sendMessage("❌ এই গ্রুপের মেসেজ ডাটা পাওয়া যায়নি।", threadID, messageID);
+  }
+
+  // মেম্বারদের মেসেজ কাউন্ট বের করা ও সর্ট করা
+  let membersList = [];
+  if (Array.isArray(threadData.members)) {
+    membersList = threadData.members;
+  } else {
+    membersList = Object.entries(threadData.members).map(([id, val]) => ({ userID: id, ...val }));
+  }
+
+  const sorted = membersList
+    .map(m => ({
+      uid: m.userID,
+      name: m.name || "Facebook User",
+      count: m.count || 0
     }))
-    .sort((a, b) => b.money - a.money)
+    .filter(m => m.count > 0)
+    .sort((a, b) => b.count - a.count)
     .slice(0, 10);
+
+  if (sorted.length === 0) {
+    return api.sendMessage("⚠️ এই গ্রুপিংয়ে মেসেজ ডাটা যুক্ত কোনো ইউজার নেই।", threadID, messageID);
+  }
 
   const cacheDir = path.join(__dirname, "cache");
   await fs.ensureDir(cacheDir);
 
-  const avatars = [];
-  for (const user of sorted) {
-    const img = await loadAvatar(user.uid, cacheDir);
-    avatars.push(img);
-  }
+  // অবতার লোড করা
+  const avatars = await Promise.all(sorted.map(user => loadAvatar(user.uid, cacheDir)));
 
+  // ক্যানভাস সাইজ
   const width = 800;
-  const rowH = 72;
-  const headerH = 130;
-  const footerH = 50;
-  const height = headerH + rowH * sorted.length + footerH;
-
+  const height = 900;
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
 
-  const bgGrad = ctx.createLinearGradient(0, 0, width, height);
-  bgGrad.addColorStop(0, "#0a2a4a");
-  bgGrad.addColorStop(1, "#0f4c81");
+  // ব্যাকগ্রাউন্ড - Dark Space Theme
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
+  bgGrad.addColorStop(0, "#0a0c1d");
+  bgGrad.addColorStop(0.5, "#101432");
+  bgGrad.addColorStop(1, "#0a0c1d");
   ctx.fillStyle = bgGrad;
-  roundRect(ctx, 0, 0, width, height, 20, true);
+  ctx.fillRect(0, 0, width, height);
 
-  ctx.fillStyle = "rgba(255,255,255,0.04)";
-  for (let i = 0; i < 5; i++) {
+  // ব্যাকগ্রাউন্ডে স্টার/তারকা এফেক্ট
+  ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
+  for (let i = 0; i < 40; i++) {
+    const sx = Math.random() * width;
+    const sy = Math.random() * height;
+    const sr = Math.random() * 2 + 1;
     ctx.beginPath();
-    ctx.arc(width - 40 + i * 25, 30 + i * 20, 90 + i * 35, 0, Math.PI * 2);
+    ctx.arc(sx, sy, sr, 0, Math.PI * 2);
     ctx.fill();
   }
 
+  // হেডার টেক্সট
   ctx.textAlign = "center";
-  ctx.font = "bold 38px Arial";
-  ctx.fillStyle = "#ffffff";
-  ctx.fillText("🏆  LEADERBOARD", width / 2, 55);
+  ctx.font = "bold 32px Arial";
+  ctx.fillStyle = "#ffd700";
+  ctx.fillText("👑 MESSAGE COUNT LEADERBOARD 👑", width / 2, 55);
 
-  ctx.font = "18px Arial";
-  ctx.fillStyle = "rgba(255,255,255,0.6)";
-  ctx.fillText("GOAT NATIONAL BANK — TOP 10", width / 2, 85);
-
-  ctx.strokeStyle = "rgba(255,255,255,0.15)";
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(255, 215, 0, 0.3)";
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
-  ctx.moveTo(40, 105);
-  ctx.lineTo(width - 40, 105);
+  ctx.moveTo(100, 75);
+  ctx.lineTo(width - 100, 75);
   ctx.stroke();
 
-  const medals = ["🥇", "🥈", "🥉"];
-  const avatarSize = 46;
+  // ------------------- TOP 3 SECTION -------------------
+  const topPositions = [
+    { rank: 1, x: 400, y: 180, size: 100, color: "#ffd700", label: "#1" }, // Center - Gold
+    { rank: 2, x: 200, y: 210, size: 80, color: "#e0e0e0", label: "#2" },  // Left - Silver
+    { rank: 3, x: 600, y: 210, size: 80, color: "#cd7f32", label: "#3" }   // Right - Bronze
+  ];
 
-  for (let i = 0; i < sorted.length; i++) {
+  // Top 3 মেম্বার ড্র করা
+  const top3Indices = [0, 1, 2];
+  top3Indices.forEach((idx) => {
+    if (sorted[idx]) {
+      const user = sorted[idx];
+      const pos = topPositions[idx];
+      const avatar = avatars[idx];
+
+      // অবতার আঁকা
+      drawCircularAvatar(ctx, avatar, user.name, pos.x - pos.size / 2, pos.y - pos.size / 2, pos.size, pos.color);
+
+      // র্যাঙ্ক ব্যাজ (#1, #2, #3)
+      ctx.fillStyle = pos.color;
+      ctx.beginPath();
+      ctx.arc(pos.x + pos.size / 2 - 10, pos.y - pos.size / 2 + 10, 16, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#000000";
+      ctx.font = "bold 14px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(pos.label, pos.x + pos.size / 2 - 10, pos.y - pos.size / 2 + 10);
+
+      // নাম
+      ctx.textBaseline = "alphabetic";
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 17px Arial";
+      let shortName = user.name;
+      if (shortName.length > 15) shortName = shortName.substring(0, 13) + "..";
+      ctx.fillText(shortName, pos.x, pos.y + pos.size / 2 + 25);
+
+      // মেসেজ কাউন্ট
+      ctx.fillSt pos.color;
+      ctx.font = "15px Arial";
+      ctx.fillText(`${formatCount(user.count)} msgs`, pos.x, pos.y + pos.size / 2 + 45);
+    }
+  });
+
+  // ------------------- LIST SECTION (#4 to #10) -------------------
+  const startY = 360;
+  const rowHeight = 62;
+  const barColors = ["#00e676", "#ff9100", "#ff4081", "#00e5ff", "#ab47bc", "#29b6f6", "#ffee58"];
+  const maxCountInList = sorted[0] ? sorted[0].count : 1;
+
+  for (let i = 3; i < sorted.length; i++) {
     const user = sorted[i];
     const avatar = avatars[i];
-    const y = headerH + i * rowH;
-    const isTop3 = i < 3;
+    const y = startY + (i - 3) * rowHeight;
+    const color = barColors[(i - 3) % barColors.length];
 
-    if (isTop3) {
-      const rowGrad = ctx.createLinearGradient(30, y, width - 30, y);
-      rowGrad.addColorStop(0, "rgba(255,215,0,0.12)");
-      rowGrad.addColorStop(1, "rgba(255,215,0,0.02)");
-      ctx.fillStyle = rowGrad;
-    } else {
-      ctx.fillStyle = i % 2 === 0 ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.02)";
-    }
-    roundRect(ctx, 30, y + 6, width - 60, rowH - 10, 12, true);
+    // ব্যাকগ্রাউন্ড কার্ড
+    ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
+    roundRect(ctx, 40, y, width - 80, 52, 12, true);
 
-    ctx.textAlign = "center";
-    ctx.textBaseline = "alphabetic";
-    ctx.font = isTop3 ? "bold 26px Arial" : "bold 20px Arial";
-    ctx.fillStyle = isTop3 ? "#ffd700" : "rgba(255,255,255,0.5)";
-    ctx.fillText(isTop3 ? medals[i] : `#${i + 1}`, 72, y + rowH / 2 + 8);
-
-    const ax = 100;
-    const ay = y + rowH / 2 - avatarSize / 2;
-    drawAvatar(ctx, avatar, user.name, ax, ay, avatarSize, isTop3);
-
+    // র্যাঙ্ক নম্বর (#4, #5...)
     ctx.textAlign = "left";
-    ctx.textBaseline = "alphabetic";
-    let displayName = user.name;
-    ctx.font = isTop3 ? "bold 22px Arial" : "bold 19px Arial";
-    ctx.fillStyle = "#ffffff";
-    while (ctx.measureText(displayName).width > 390 && displayName.length > 1) {
-      displayName = displayName.slice(0, -1);
-    }
-    if (displayName !== user.name) displayName += "…";
-    ctx.fillText(displayName, 162, y + rowH / 2 + 8);
+    ctx.font = "bold 18px Arial";
+    ctx.fillStyle = "#a0a5c0";
+    ctx.fillText(`#${i + 1}`, 60, y + 32);
 
+    // ছোট অবতার
+    const avatarX = 110;
+    const avatarY = y + 8;
+    const avatarSize = 36;
+    drawCircularAvatar(ctx, avatar, user.name, avatarX, avatarY, avatarSize, "rgba(255,255,255,0.2)");
+
+    // ইউজারের নাম
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 17px Arial";
+    let nameText = user.name;
+    if (nameText.length > 18) nameText = nameText.substring(0, 16) + "..";
+    ctx.fillText(nameText, 160, y + 32);
+
+    // প্রোগ্রেস বার
+    const barX = 370;
+    const barWidth = 260;
+    const barH = 10;
+    const progress = Math.min((user.count / maxCountInList) * barWidth, barWidth);
+
+    // বার ব্যাকগ্রাউন্ড
+    ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
+    roundRect(ctx, barX, y + 21, barWidth, barH, 5, true);
+
+    // ফিল্ড প্রোগ্রেস বার
+    if (progress > 0) {
+      ctx.fillStyle = color;
+      roundRect(ctx, barX, y + 21, Math.max(progress, 10), barH, 5, true);
+    }
+
+    // মেসেজ সংখ্যা
     ctx.textAlign = "right";
-    ctx.font = isTop3 ? "bold 22px Arial" : "bold 19px Arial";
-    ctx.fillStyle = isTop3 ? "#ffd700" : "#4fc3f7";
-    ctx.fillText("$" + formatBalance(user.money), width - 50, y + rowH / 2 + 8);
+    ctx.font = "bold 17px Arial";
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(formatCount(user.count), width - 60, y + 32);
   }
 
+  // ফুটার
   ctx.textAlign = "center";
-  ctx.font = "15px Arial";
-  ctx.fillStyle = "rgba(255,255,255,0.3)";
-  ctx.fillText("GOAT BOT  •  Economy System", width / 2, height - 18);
+  ctx.font = "14px Arial";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+  ctx.fillText("GOATBOT • MESSAGE LEADERBOARD", width / 2, height - 20);
 
-  const filePath = path.join(cacheDir, `leaderboard_${Date.now()}.png`);
+  // ইমেজ সেভ ও সেন্ড
+  const filePath = path.join(cacheDir, `topmsg_${Date.now()}.png`);
   await fs.writeFile(filePath, canvas.toBuffer("image/png"));
 
-  await api.sendMessage({ attachment: fs.createReadStream(filePath) }, threadID, messageID);
-  setTimeout(() => fs.remove(filePath), 10000);
+  await api.sendMessage(
+    { attachment: fs.createReadStream(filePath) },
+    threadID,
+    () => fs.remove(filePath),
+    messageID
+  );
 };
