@@ -7,21 +7,19 @@ module.exports.config = {
   name: "topmsg",
   aliases: ["msglb", "msgtop", "topmessage"],
   version: "2.0",
-  author: "HABIB",
+  author: "HABIB | fix by BADHON-00",
   countDown: 10,
   role: 0,
   shortDescription: "Top 10 message count leaderboard",
   category: "box chat"
 };
 
-// মেসেজ কাউন্ট ফরম্যাট করার ফাংশন (1.5K, 2.3M ইত্যাদি)
 function formatCount(num) {
   if (num >= 1e6) return (num / 1e6).toFixed(2) + "M";
   if (num >= 1e3) return (num / 1e3).toFixed(2) + "K";
   return String(num);
 }
 
-// রাউন্ডেড রেকটেঙ্গেল ড্র করার ফাংশন
 function roundRect(ctx, x, y, w, h, r, fill = false, stroke = false) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -38,7 +36,6 @@ function roundRect(ctx, x, y, w, h, r, fill = false, stroke = false) {
   if (stroke) ctx.stroke();
 }
 
-// প্রোফাইল পিকচার ডাউনলোড করার ফাংশন
 async function loadAvatar(uid, cacheDir) {
   const tmpPath = path.join(cacheDir, `av_${uid}_${Date.now()}.png`);
   try {
@@ -54,7 +51,6 @@ async function loadAvatar(uid, cacheDir) {
   }
 }
 
-// অবতার ড্র করার ফাংশন
 function drawCircularAvatar(ctx, img, name, x, y, size, borderColor = "#ffffff") {
   ctx.save();
   ctx.beginPath();
@@ -75,7 +71,6 @@ function drawCircularAvatar(ctx, img, name, x, y, size, borderColor = "#ffffff")
   }
   ctx.restore();
 
-  // বর্ডার ড্র করা
   ctx.strokeStyle = borderColor;
   ctx.lineWidth = 3;
   ctx.beginPath();
@@ -88,10 +83,9 @@ module.exports.onStart = async function ({ api, event, threadsData, usersData })
 
   const threadData = await threadsData.get(threadID);
   if (!threadData || !threadData.members) {
-    return api.sendMessage("❌ এই গ্রুপের মেসেজ ডাটা পাওয়া যায়নি।", threadID, messageID);
+    return api.sendMessage("❌ এই গ্রুপের মেসেজ ডাটা পাওয়া যায়নি।", threadID, messageID);
   }
 
-  // মেম্বারদের মেসেজ কাউন্ট বের করা ও সর্ট করা
   let membersList = [];
   if (Array.isArray(threadData.members)) {
     membersList = threadData.members;
@@ -110,22 +104,19 @@ module.exports.onStart = async function ({ api, event, threadsData, usersData })
     .slice(0, 10);
 
   if (sorted.length === 0) {
-    return api.sendMessage("⚠️ এই গ্রুপিংয়ে মেসেজ ডাটা যুক্ত কোনো ইউজার নেই।", threadID, messageID);
+    return api.sendMessage("⚠️ এই গ্রুপিংয়ে মেসেজ ডাটা যুক্ত কোনো ইউজার নেই।", threadID, messageID);
   }
 
   const cacheDir = path.join(__dirname, "cache");
   await fs.ensureDir(cacheDir);
 
-  // অবতার লোড করা
   const avatars = await Promise.all(sorted.map(user => loadAvatar(user.uid, cacheDir)));
 
-  // ক্যানভাস সাইজ
   const width = 800;
   const height = 900;
   const canvas = createCanvas(width, height);
   const ctx = canvas.getContext("2d");
 
-  // ব্যাকগ্রাউন্ড - Dark Space Theme
   const bgGrad = ctx.createLinearGradient(0, 0, 0, height);
   bgGrad.addColorStop(0, "#0a0c1d");
   bgGrad.addColorStop(0.5, "#101432");
@@ -133,7 +124,6 @@ module.exports.onStart = async function ({ api, event, threadsData, usersData })
   ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, width, height);
 
-  // ব্যাকগ্রাউন্ডে স্টার/তারকা এফেক্ট
   ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
   for (let i = 0; i < 40; i++) {
     const sx = Math.random() * width;
@@ -144,7 +134,6 @@ module.exports.onStart = async function ({ api, event, threadsData, usersData })
     ctx.fill();
   }
 
-  // হেডার টেক্সট
   ctx.textAlign = "center";
   ctx.font = "bold 32px Arial";
   ctx.fillStyle = "#ffd700";
@@ -157,14 +146,12 @@ module.exports.onStart = async function ({ api, event, threadsData, usersData })
   ctx.lineTo(width - 100, 75);
   ctx.stroke();
 
-  // ------------------- TOP 3 SECTION -------------------
   const topPositions = [
-    { rank: 1, x: 400, y: 180, size: 100, color: "#ffd700", label: "#1" }, // Center - Gold
-    { rank: 2, x: 200, y: 210, size: 80, color: "#e0e0e0", label: "#2" },  // Left - Silver
-    { rank: 3, x: 600, y: 210, size: 80, color: "#cd7f32", label: "#3" }   // Right - Bronze
+    { rank: 1, x: 400, y: 180, size: 100, color: "#ffd700", label: "#1" },
+    { rank: 2, x: 200, y: 210, size: 80, color: "#e0e0e0", label: "#2" },
+    { rank: 3, x: 600, y: 210, size: 80, color: "#cd7f32", label: "#3" }
   ];
 
-  // Top 3 মেম্বার ড্র করা
   const top3Indices = [0, 1, 2];
   top3Indices.forEach((idx) => {
     if (sorted[idx]) {
@@ -172,10 +159,8 @@ module.exports.onStart = async function ({ api, event, threadsData, usersData })
       const pos = topPositions[idx];
       const avatar = avatars[idx];
 
-      // অবতার আঁকা
       drawCircularAvatar(ctx, avatar, user.name, pos.x - pos.size / 2, pos.y - pos.size / 2, pos.size, pos.color);
 
-      // র্যাঙ্ক ব্যাজ (#1, #2, #3)
       ctx.fillStyle = pos.color;
       ctx.beginPath();
       ctx.arc(pos.x + pos.size / 2 - 10, pos.y - pos.size / 2 + 10, 16, 0, Math.PI * 2);
@@ -187,7 +172,6 @@ module.exports.onStart = async function ({ api, event, threadsData, usersData })
       ctx.textBaseline = "middle";
       ctx.fillText(pos.label, pos.x + pos.size / 2 - 10, pos.y - pos.size / 2 + 10);
 
-      // নাম
       ctx.textBaseline = "alphabetic";
       ctx.fillStyle = "#ffffff";
       ctx.font = "bold 17px Arial";
@@ -195,14 +179,12 @@ module.exports.onStart = async function ({ api, event, threadsData, usersData })
       if (shortName.length > 15) shortName = shortName.substring(0, 13) + "..";
       ctx.fillText(shortName, pos.x, pos.y + pos.size / 2 + 25);
 
-      // মেসেজ কাউন্ট
-      ctx.fillSt pos.color;
+      ctx.fillStyle = pos.color;
       ctx.font = "15px Arial";
       ctx.fillText(`${formatCount(user.count)} msgs`, pos.x, pos.y + pos.size / 2 + 45);
     }
   });
 
-  // ------------------- LIST SECTION (#4 to #10) -------------------
   const startY = 360;
   const rowHeight = 62;
   const barColors = ["#00e676", "#ff9100", "#ff4081", "#00e5ff", "#ab47bc", "#29b6f6", "#ffee58"];
@@ -214,59 +196,49 @@ module.exports.onStart = async function ({ api, event, threadsData, usersData })
     const y = startY + (i - 3) * rowHeight;
     const color = barColors[(i - 3) % barColors.length];
 
-    // ব্যাকগ্রাউন্ড কার্ড
     ctx.fillStyle = "rgba(255, 255, 255, 0.05)";
     roundRect(ctx, 40, y, width - 80, 52, 12, true);
 
-    // র্যাঙ্ক নম্বর (#4, #5...)
     ctx.textAlign = "left";
     ctx.font = "bold 18px Arial";
     ctx.fillStyle = "#a0a5c0";
     ctx.fillText(`#${i + 1}`, 60, y + 32);
 
-    // ছোট অবতার
     const avatarX = 110;
     const avatarY = y + 8;
     const avatarSize = 36;
     drawCircularAvatar(ctx, avatar, user.name, avatarX, avatarY, avatarSize, "rgba(255,255,255,0.2)");
 
-    // ইউজারের নাম
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 17px Arial";
     let nameText = user.name;
     if (nameText.length > 18) nameText = nameText.substring(0, 16) + "..";
     ctx.fillText(nameText, 160, y + 32);
 
-    // প্রোগ্রেস বার
     const barX = 370;
     const barWidth = 260;
     const barH = 10;
     const progress = Math.min((user.count / maxCountInList) * barWidth, barWidth);
 
-    // বার ব্যাকগ্রাউন্ড
     ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
     roundRect(ctx, barX, y + 21, barWidth, barH, 5, true);
 
-    // ফিল্ড প্রোগ্রেস বার
     if (progress > 0) {
       ctx.fillStyle = color;
       roundRect(ctx, barX, y + 21, Math.max(progress, 10), barH, 5, true);
     }
 
-    // মেসেজ সংখ্যা
     ctx.textAlign = "right";
     ctx.font = "bold 17px Arial";
     ctx.fillStyle = "#ffffff";
     ctx.fillText(formatCount(user.count), width - 60, y + 32);
   }
 
-  // ফুটার
   ctx.textAlign = "center";
   ctx.font = "14px Arial";
   ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
   ctx.fillText("GOATBOT • MESSAGE LEADERBOARD", width / 2, height - 20);
 
-  // ইমেজ সেভ ও সেন্ড
   const filePath = path.join(cacheDir, `topmsg_${Date.now()}.png`);
   await fs.writeFile(filePath, canvas.toBuffer("image/png"));
 
