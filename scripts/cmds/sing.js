@@ -1,149 +1,179 @@
 const axios = require("axios");
-const fs = require("fs-extra");
+const yts = require("yt-search");
+const fs = require("fs");
 const path = require("path");
 
-const BASE_URL = "https://play.nkx.lol";
-const MAX_ATTACHMENT_BYTES = 26214400;
-const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-const REQUEST_HEADERS = { "User-Agent": BROWSER_UA };
+const CACHE_DIR = path.join(__dirname, "cache");
+const DL_API_BASE = "https://ytdl-api-xdi.onrender.com/api/dl";
 
-function resolveUrl(uri, baseUrl) {
-  try {
-    return new URL(uri, baseUrl).href;
-  } catch (e) {
-    return uri;
-  }
+async function fetchSongInfo(videoUrl) {
+	const infoRes = await axios.get(DL_API_BASE, {
+		params: { link: videoUrl, format: "mp3" },
+		timeout: 60000
+	});
+
+	const data = infoRes.data;
+	if (!data?.downloadUrl) {
+		throw new Error(data?.error || "downloadUrl paoa jayni API response e");
+	}
+	return data;
 }
 
-function parseMediaPlaylist(text, baseUrl) {
-  let initUrl = null;
-  const segments = [];
+async function streamDownloadToFile(dlUrl, filePath) {
+	if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
+	const response = await axios.get(dlUrl, {
+		responseType: "stream",
+		timeout: 300000,
+		maxContentLength: Infinity,
+		maxBodyLength: Infinity,
+		headers: {
+			"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1"
+		}
+	});
 
-    if (line.startsWith("#EXT-X-MAP:")) {
-      const m = line.match(/URI="([^"]+)"/);
-      if (m) initUrl = resolveUrl(m[1], baseUrl);
-    } else if (!line.startsWith("#")) {
-      segments.push(resolveUrl(line, baseUrl));
-    }
-  }
+	const contentType = response.headers["content-type"] || "";
+	const isValid = contentType.includes("video") || contentType.includes("audio") || contentType.includes("octet-stream");
 
-  return { initUrl, segments };
-}
-async function fetchAndParsePlaylist(url) {
-  const res = await axios.get(url, { headers: REQUEST_HEADERS, timeout: 20000, responseType: "text" });
-  const text = typeof res.data === "string" ? res.data : String(res.data);
+	if (!isValid) {
+		let bodyText = "";
+		try {
+			const chunks = [];
+			for await (const chunk of response.data) {
+				chunks.push(chunk);
+				if (Buffer.concat(chunks).length > 2000) break;
+			}
+			bodyText = Buffer.concat(chunks).toString("utf-8").slice(0, 500);
+		} catch (_) {}
 
-  if (text.includes("#EXT-X-STREAM-INF")) {
-    const variantLine = text
-      .split(/\r?\n/)
-      .map((l) => l.trim())
-      .find((l) => l && !l.startsWith("#"));
-    if (!variantLine) throw new Error("Master playlist had no variant stream.");
-    return fetchAndParsePlaylist(resolveUrl(variantLine, url));
-  }
+		throw new Error(
+			`Invalid content received from downloadUrl (type: ${contentType})` +
+			(bodyText ? ` — upstream said: "${bodyText.trim()}"` : "")
+		);
+	}
 
-  return parseMediaPlaylist(text, url);
-}
+	const writer = fs.createWriteStream(filePath);
 
-async function downloadHlsAudio(streamUrl) {
-  const { initUrl, segments } = await fetchAndParsePlaylist(streamUrl);
-  if (segments.length === 0) throw new Error("No segments were found in the HLS playlist.");
+	await new Promise((resolve, reject) => {
+		response.data.pipe(writer);
+		let failed = false;
+		const onError = (err) => {
+			if (failed) return;
+			failed = true;
+			writer.close();
+			fs.unlink(filePath, () => {});
+			reject(err);
+		};
+		response.data.on("error", onError);
+		writer.on("error", onError);
+		writer.on("close", () => { if (!failed) resolve(); });
+	});
 
-  const buffers = [];
-  let totalBytes = 0;
-
-  if (initUrl) {
-    const initRes = await axios.get(initUrl, { headers: REQUEST_HEADERS, responseType: "arraybuffer", timeout: 20000 });
-    buffers.push(Buffer.from(initRes.data));
-    totalBytes += initRes.data.byteLength;
-  }
-
-  for (const segUrl of segments) {
-    const segRes = await axios.get(segUrl, { headers: REQUEST_HEADERS, responseType: "arraybuffer", timeout: 20000 });
-    totalBytes += segRes.data.byteLength;
-    if (totalBytes > MAX_ATTACHMENT_BYTES) {
-      throw new Error("Audio stream exceeds Messenger's 25MB limit.");
-    }
-    buffers.push(Buffer.from(segRes.data));
-  }
-
-  return { buffer: Buffer.concat(buffers), isFragmentedMp4: !!initUrl };
+	const stats = fs.statSync(filePath);
+	if (stats.size < 1024) {
+		fs.unlink(filePath, () => {});
+		throw new Error(`Downloaded file too small (${stats.size} bytes) — corrupt ba failed download`);
+	}
 }
 
-module.exports = {
-  config: {
-    name: "sing",
-    aliases: ["song", "music"],
-    version: "1.1",
-    author: "Neoaz 🐊",
-    countDown: 5,
-    role: 0,
-    shortDescription: { en: "Search and download a song" },
-    longDescription: { en: "Search and download the top matching song automatically." },
-    category: "media",
-    guide: { en: "{pn} <song name>" }
-  },
+function extractApiErrorMessage(err) {
+	const raw = err.response?.data;
 
-  onStart: async function ({ message, args, event, api }) {
-    const query = args.join(" ");
-    if (!query) return message.reply("Please provide a song name.");
+	if (raw && typeof raw === "object" && !Buffer.isBuffer(raw)) {
+		if (raw.error) return raw.error;
+		if (raw.message) return raw.message;
+	}
 
-    api.setMessageReaction("⏳", event.messageID);
+	if (raw) {
+		try {
+			const text = Buffer.isBuffer(raw) ? raw.toString("utf-8") : String(raw);
+			const parsed = JSON.parse(text);
+			if (parsed?.error) return parsed.error;
+			if (parsed?.message) return parsed.message;
+		} catch (_) {}
+	}
 
-    try {
-      const searchRes = await axios.get(`${BASE_URL}/search`, {
-        params: { q: query, limit: 1 },
-        timeout: 25000,
-        validateStatus: () => true
-      });
+	return err.message;
+}
 
-      if (searchRes.status >= 400) {
-        api.setMessageReaction("❌", event.messageID);
-        return message.reply(`Search failed (status ${searchRes.status}).`);
-      }
+function tempFilePath(ext) {
+	if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+	return path.join(CACHE_DIR, `sing_${Date.now()}_${Math.floor(Math.random() * 1e4)}.${ext}`);
+}
 
-      const results = searchRes.data?.results;
-      if (!Array.isArray(results) || results.length === 0) {
-        api.setMessageReaction("❌", event.messageID);
-        return message.reply("No songs found for your query.");
-      }
+async function sendWithRetry(message, msg, retries = 2) {
+	for (let i = 0; i <= retries; i++) {
+		try {
+			return await message.reply(msg);
+		} catch (err) {
+			const is408 = err?.error === 408 || String(err?.message || err).includes("408");
+			if (is408 && i < retries) {
+				console.warn(`[sing] Upload timeout, retrying (${i + 1}/${retries})...`);
+				await new Promise(r => setTimeout(r, 2000));
+				continue;
+			}
+			throw err;
+		}
+	}
+}
 
-      const selected = results[0];
-      const streamUrl = selected.audio_cdn_url;
-      const title = selected.title || query;
+function react(api, messageID, emoji) {
+	try {
+		api.setMessageReaction(emoji, messageID, () => {}, true);
+	} catch (_) {}
+}
 
-      if (!streamUrl) {
-        api.setMessageReaction("❌", event.messageID);
-        return message.reply("No playable stream was found for that result.");
-      }
+module.exports.config = {
+	name: "sing",
+	aliases: ["song"],
+	version: "1.0.0",
+	author: "EryXenX",
+	countDown: 5,
+	role: 0,
+	shortDescription: "YouTube theke gaan download",
+	longDescription: "Song name diye sorasori mp3 download kore pathay",
+	category: "media",
+	guide: {
+		en: "{pn} <song name>\nExample: {pn} mann mera"
+	}
+};
 
-      const { buffer, isFragmentedMp4 } = await downloadHlsAudio(streamUrl);
-      if (buffer.length === 0) {
-        api.setMessageReaction("❌", event.messageID);
-        return message.reply("The downloaded audio was empty.");
-      }
+module.exports.onStart = async function ({ api, event, args, message }) {
+	const { messageID } = event;
+	const query = args.join(" ").trim();
 
-      const cacheDir = path.join(__dirname, "cache");
-      await fs.ensureDir(cacheDir);
-      const ext = isFragmentedMp4 ? "m4a" : "aac";
-      const filePath = path.join(cacheDir, `${Date.now()}.${ext}`);
-      await fs.writeFile(filePath, buffer);
+	if (!query) {
+		return message.reply("❌ Song name den.\nExample: sing mann mera");
+	}
 
-      await message.reply({
-        body: title,
-        attachment: fs.createReadStream(filePath)
-      });
+	react(api, messageID, "⏳");
 
-      api.setMessageReaction("✅", event.messageID);
-      fs.remove(filePath).catch(() => {});
-    } catch (e) {
-      console.error("[SING COMMAND ERROR]:", e?.response?.data || e.message || e);
-      api.setMessageReaction("❌", event.messageID);
-      message.reply("An error occurred while processing the download.");
-    }
-  }
+	let file;
+	try {
+		const search = await yts(query);
+		const video = search.videos?.[0];
+		if (!video) {
+			react(api, messageID, "❌");
+			return message.reply(`❌ "${query}" er kono result paoa jayni`);
+		}
+
+		const info = await fetchSongInfo(video.url);
+		file = tempFilePath("mp3");
+		await streamDownloadToFile(info.downloadUrl, file);
+
+		await sendWithRetry(message, {
+			body: `🎶 ${video.title}\n🕒 ${video.timestamp}`,
+			attachment: fs.createReadStream(file)
+		});
+
+		react(api, messageID, "✅");
+	} catch (err) {
+		console.error(err);
+		react(api, messageID, "❌");
+		return message.reply("❌ Download failed: " + extractApiErrorMessage(err));
+	} finally {
+		if (file) {
+			try { fs.unlinkSync(file); } catch (e) { console.error("[sing] cleanup error:", e.message); }
+		}
+	}
 };

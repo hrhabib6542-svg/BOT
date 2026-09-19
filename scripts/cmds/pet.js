@@ -6,52 +6,41 @@ module.exports = {
   config: {
     name: "pet",
     version: "1.0",
-    author: "Toshiro Editz",
-    countDown: 10,
+    author: "nexo",
+    countDown: 5,
     role: 0,
-    shortDescription: {
-      en: "Add pet paw effect to profile picture"
-    },
-    description: {
-      en: "Adds a cute pet paw effect to your or mentioned user's profile picture"
-    },
+    shortDescription: "Pet a user",
+    longDescription: "Generates a pet image/video for a tagged user",
     category: "fun",
-    guide: {
-      en: "{p}pet [@mention or reply]\nIf no mention or reply, uses your profile picture."
-    }
+    guide: "{p}pet @user"
   },
 
-  onStart: async function ({ api, event, message }) {
-    const { senderID, mentions, type, messageReply } = event;
+  onStart: async function ({ message, event, usersData }) {
+    const mentions = Object.keys(event.mentions);
+    if (mentions.length === 0) return message.reply("❌ Please tag a user.");
 
-    // Determine user ID for avatar
-    let uid;
-    if (Object.keys(mentions).length > 0) {
-      uid = Object.keys(mentions)[0];
-    } else if (type === "message_reply") {
-      uid = messageReply.senderID;
-    } else {
-      uid = senderID;
-    }
-
-    const avatarURL = `https://graph.facebook.com/${uid}/picture?width=512&height=512&access_token=350685531728|62f8ce9f74b12f84c123cc23437a4a32`;
+    const userid = mentions[0];
+    const apiUrl = `https://betadash-api-swordslush-production.up.railway.app/pet?userid=${userid}`;
 
     try {
-      const res = await axios.get(`https://api.popcat.xyz/v2/pet?image=${encodeURIComponent(avatarURL)}`, {
-        responseType: "arraybuffer"
-      });
+      const res = await axios.get(apiUrl, { responseType: "arraybuffer" });
+      const contentType = res.headers["content-type"];
+      const ext = contentType.includes("gif") ? "gif" : contentType.includes("mp4") ? "mp4" : "jpg";
+      const filePath = path.join(__dirname, "cache", `pet_${userid}.${ext}`);
 
-      const filePath = path.join(__dirname, "cache", `pet_${uid}_${Date.now()}.png`);
       fs.writeFileSync(filePath, res.data);
 
-      message.reply({
-        body: "🐾 Here's your pet paw effect image!",
-        attachment: fs.createReadStream(filePath)
-      }, () => fs.unlinkSync(filePath));
+      const name = await usersData.getName(userid);
 
+      await message.reply({
+        body: `🐾 You petted ${name}!`,
+        attachment: fs.createReadStream(filePath)
+      });
+
+      fs.unlinkSync(filePath);
     } catch (err) {
-      console.error(err);
-      message.reply("❌ | Failed to generate pet effect image.");
+      console.error("❌ Pet command error:", err);
+      message.reply("⚠️ Failed to generate pet image/video.");
     }
   }
 };

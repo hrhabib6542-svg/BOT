@@ -1,84 +1,57 @@
 const axios = require("axios");
+const fs = require("fs");
+const path = require("path");
 
 module.exports = {
   config: {
-    name: "pin",
-    aliases: ["pinterest"],
-    version: "2.0",
-    author: "Toshiro Editz",
-    countDown: 5,
+    name: "pinterest",
+    aliases: ["pin", "pint"],
+    version: "1.0",
+    author: "nexo_here",
+    countDown: 2,
     role: 0,
-    shortDescription: {
-      en: "Search Pinterest Images"
-    },
-    longDescription: {
-      en: "Search Pinterest images by keyword."
-    },
-    category: "search",
+    description: "Search Pinterest and get image results",
+    category: "image",
     guide: {
-      en: "{pn} <keyword>\n{pn} <keyword> - <limit>\n\nExamples:\n{pn} Zoro\n{pn} Zoro - 10"
+      en: "{pn} [keyword] — Get Pinterest image results\nExample: {pn} Naruto"
     }
   },
 
-  onStart: async function ({ message, args }) {
+  onStart: async function ({ api, event, args }) {
+    const query = args.join(" ");
+    if (!query) return api.sendMessage("❗ Please provide a search keyword.\nExample: pinterest Naruto", event.threadID, event.messageID);
+
     try {
-      const input = args.join(" ").trim();
+      const count = 5;
+      const url = `https://betadash-api-swordslush-production.up.railway.app/pinterest?search=${encodeURIComponent(query)}&count=${count}`;
+      const res = await axios.get(url);
 
-      if (!input) {
-        return message.reply(
-          "❌ Please provide a keyword.\n\nExample:\npin Zoro\npin Zoro - 10"
-        );
+      const imageList = res.data?.data;
+      if (!Array.isArray(imageList) || imageList.length === 0) {
+        return api.sendMessage("❌ No results found!", event.threadID, event.messageID);
       }
 
-      let keyword = input;
-      let limit = 1;
-
-      if (input.includes("-")) {
-        const split = input.split("-");
-        keyword = split[0].trim();
-        limit = parseInt(split[1]) || 1;
-      }
-
-      if (limit < 1) limit = 1;
-      if (limit > 20) limit = 20;
-
-      const api = `https://toshiro-api-editz6t9.vercel.app/api/search/pin?keyword=${encodeURIComponent(keyword)}&limit=${limit}`;
-
-      const { data } = await axios.get(api);
-
-      if (!data.success || !data.result?.preview?.length) {
-        return message.reply("❌ No images found.");
-      }
-
-      const images = data.result.preview.slice(0, limit);
       const attachments = [];
 
-      for (const url of images) {
-        try {
-          const img = await axios.get(url, {
-            responseType: "stream"
-          });
-
-          attachments.push(img.data);
-        } catch {}
+      for (let i = 0; i < imageList.length; i++) {
+        const imageRes = await axios.get(imageList[i], { responseType: "arraybuffer" });
+        const imagePath = path.join(__dirname, `pin_${i}.jpg`);
+        fs.writeFileSync(imagePath, imageRes.data);
+        attachments.push(fs.createReadStream(imagePath));
       }
 
-      if (!attachments.length) {
-        return message.reply("❌ Failed to download images.");
-      }
-
-      return message.reply({
-        body:
-`📌 𝗣𝗶𝗻𝘁𝗲𝗿𝗲𝘀𝘁 𝗦𝗲𝗮𝗿𝗰𝗵
-
-🔎 𝗞𝗲𝘆𝘄𝗼𝗿𝗱: ${data.keyword}
-🖼️ 𝗥𝗲𝘀𝘂𝗹𝘁𝘀: ${attachments.length}/${data.total}`,
+      api.sendMessage({
+        body: `🔍 Pinterest results for: "${query}"`,
         attachment: attachments
-      });
+      }, event.threadID, () => {
+        for (let i = 0; i < attachments.length; i++) {
+          fs.unlinkSync(path.join(__dirname, `pin_${i}.jpg`));
+        }
+      }, event.messageID);
 
     } catch (err) {
-      console.error(err.response?.data || err);
-      return message.reply("❌ Failed to fetch Pinterest images.");
+      console.error(err);
+      api.sendMessage("🚫 Error fetching from Pinterest API.", event.threadID, event.messageID);
     }
   }
 };

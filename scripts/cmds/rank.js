@@ -29,7 +29,7 @@ module.exports = {
 			vi: "Xem level của bạn hoặc người được tag. Có thể tag nhiều người",
 			en: "View your level or the level of the tagged person. You can tag many people"
 		},
-		category: "rank",
+		category: "game",
 		guide: {
 			vi: "   {pn} [để trống | @tags]",
 			en: "   {pn} [empty | @tags]"

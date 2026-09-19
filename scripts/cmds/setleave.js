@@ -68,15 +68,59 @@ module.exports = {
 			addedFile: "Đã thêm %1 tệp đính kèm vào tin nhắn tạm biệt của nhóm bạn"
 		},
 		en: {
-			turnedOn: "Leave messages are now enabled.",
-			turnedOff: "Leave messages are now disabled.",
-			missingContent: "Please enter the leave message content.",
-			edited: "The group leave message has been updated:\n%1",
-			reseted: "The leave message has been reset.",
-			noFile: "There are no leave attachments to remove.",
-			resetedFile: "Leave attachments have been cleared successfully.",
-			missingFile: "Please reply to this message with an image, video, or audio file.",
-			addedFile: "Added %1 attachment(s) to the group leave message."
+			turnedOn: "Turned on leave message successfully",
+			turnedOff: "Turned off leave message successfully",
+			missingContent: "Please enter content",
+			edited: "Edited leave message content of your group to:\n%1",
+			reseted: "Reseted leave message content",
+			noFile: "No leave message attachment file to reset",
+			resetedFile: "Reseted leave message attachment file successfully",
+			missingFile: "Please reply this message with image/video/audio file",
+			addedFile: "Added %1 attachment file to your leave message"
+		},
+		tl: {
+			turnedOn: "Matagumpay na na-on ang leave message",
+			turnedOff: "Matagumpay na na-off ang leave message",
+			missingContent: "Mangyaring ilagay ang nilalaman",
+			edited: "Na-edit ang nilalaman ng leave message ng iyong grupo sa:\n%1",
+			reseted: "Na-reset ang nilalaman ng leave message",
+			noFile: "Walang attachment file ng leave message na ire-reset",
+			resetedFile: "Matagumpay na na-reset ang attachment file ng leave message",
+			missingFile: "Mangyaring sumagot sa mensaheng ito na may image/video/audio file",
+			addedFile: "Naidagdag ang %1 attachment file sa iyong leave message"
+		},
+		hi: {
+			turnedOn: "Leave message successfully on ho gaya",
+			turnedOff: "Leave message successfully off ho gaya",
+			missingContent: "Kripya content dalein",
+			edited: "Aapke group ka leave message content badal diya gaya:\n%1",
+			reseted: "Leave message content reset ho gaya",
+			noFile: "Reset karne ke liye koi leave message attachment file nahi hai",
+			resetedFile: "Leave message attachment file successfully reset ho gayi",
+			missingFile: "Kripya is message ka reply image/video/audio file ke saath karein",
+			addedFile: "Aapke leave message mein %1 attachment file add kar di gayi"
+		},
+		ar: {
+			turnedOn: "تم تفعيل رسالة المغادرة بنجاح",
+			turnedOff: "تم إيقاف رسالة المغادرة بنجاح",
+			missingContent: "الرجاء إدخال المحتوى",
+			edited: "تم تعديل محتوى رسالة المغادرة لمجموعتك إلى:\n%1",
+			reseted: "تمت إعادة تعيين محتوى رسالة المغادرة",
+			noFile: "لا يوجد ملف مرفق لرسالة المغادرة لإعادة التعيين",
+			resetedFile: "تمت إعادة تعيين ملف مرفق رسالة المغادرة بنجاح",
+			missingFile: "الرجاء الرد على هذه الرسالة بملف صورة/فيديو/صوت",
+			addedFile: "تمت إضافة %1 ملف مرفق إلى رسالة المغادرة"
+		},
+		bn: {
+			turnedOn: "Leave message সফলভাবে চালু হয়েছে",
+			turnedOff: "Leave message সফলভাবে বন্ধ হয়েছে",
+			missingContent: "অনুগ্রহ করে বিষয়বস্তু লিখুন",
+			edited: "আপনার group এর leave message পরিবর্তন হয়েছে:\n%1",
+			reseted: "Leave message রিসেট হয়েছে",
+			noFile: "রিসেট করার জন্য কোনো leave message attachment file নেই",
+			resetedFile: "Leave message attachment file সফলভাবে রিসেট হয়েছে",
+			missingFile: "অনুগ্রহ করে এই message এ image/video/audio file সহ reply করুন",
+			addedFile: "আপনার leave message এ %1 টি attachment file যোগ করা হয়েছে"
 		}
 	},
 
