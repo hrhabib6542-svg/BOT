@@ -1,111 +1,139 @@
 const axios = require("axios");
-const fs = require("fs-extra");
+const fs = require("fs");
 const path = require("path");
-
-const BASE_URL = "https://meta.nkx.lol";
-const MAX_ATTACHMENT_BYTES = 26214400;
-
-function formatError(res) {
-  if (res.status === 422 && Array.isArray(res.data?.detail)) {
-    return res.data.detail.map((d) => d.msg || d).join("; ");
-  }
-  if (res.status === 401) return "The API server rejected its own API key. Check the server's API_KEY config.";
-  if (res.status === 404) return "That project/image could not be found.";
-  if (res.status === 502) return "The Vibes provider failed to fulfill this request. Try again.";
-  if (res.status === 503) return "The API server's Vibes session is misconfigured (vibes.txt missing or invalid).";
-  return res.data?.message || res.data?.error || `Request failed (status ${res.status}).`;
-}
-
-function extractEditedImageUrl(data) {
-  const contentItem = data?.result?.contentItem;
-  return contentItem?.imageUrl || contentItem?.structuredOutput?.image || null;
-}
-
-function extractImageUrlFromEvent(event) {
-  const sources = [event.messageReply?.attachments, event.attachments];
-  for (const attachments of sources) {
-    if (!Array.isArray(attachments)) continue;
-    const photo = attachments.find((a) => a.type === "photo" || a.type === "sticker");
-    if (photo) {
-      const url = photo.url || photo.largePreviewUrl || photo.previewUrl;
-      if (url) return url;
-    }
-  }
-  return null;
-}
-
-async function downloadToBuffer(fileUrl) {
-  const res = await axios.get(fileUrl, {
-    responseType: "arraybuffer",
-    timeout: 60000,
-    maxContentLength: MAX_ATTACHMENT_BYTES,
-    maxBodyLength: MAX_ATTACHMENT_BYTES,
-    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" }
-  });
-  return Buffer.from(res.data);
-}
 
 module.exports = {
   config: {
     name: "edit",
-    aliases: ["editimg", "imgedit"],
-    version: "1.0",
-    author: "Neoaz 🐊",
-    countDown: 5,
+    aliases: ["qwen"],
+    version: "3.0.0",
+    author: "EryXenX",
+    countDown: 30,
     role: 0,
-    shortDescription: { en: "AI image-to-image editing" },
-    longDescription: { en: "Reply to an image with an edit instruction to transform it." },
-    category: "ai",
-    guide: { en: "(reply to an image) {pn} <edit prompt>" }
+    shortDescription: "Edit image using Qwen API",
+    category: "AI",
+    guide: "{pn} <text> (reply to an image) | {pn} -a <text> (reply to an image, then reply to the bot's message with a 2nd photo)"
   },
 
-  onStart: async function ({ message, args, event, api }) {
-    const prompt = args.join(" ");
-    const imageUrl = extractImageUrlFromEvent(event);
+  onStart: async function ({ api, event, args }) {
+    const { threadID, messageID, messageReply } = event;
+    const addMode = args.length > 0 && (args[0] === "-a" || args[0] === "--add");
+    const promptArgs = addMode ? args.slice(1) : args;
+    const prompt = promptArgs.join(" ").trim();
 
-    if (!imageUrl) return message.reply("Reply to an image with this command to edit it.");
-    if (!prompt) return message.reply("Usage: (reply to an image) {pn} <edit prompt>");
-
-    api.setMessageReaction("⏳", event.messageID);
-
-    try {
-      const res = await axios.post(`${BASE_URL}/v1/images/edit`, {
-        image_url: imageUrl,
-        prompt,
-        project_name: "Goatbot image edit"
-      }, {
-        timeout: 120000,
-        validateStatus: () => true
-      });
-
-      if (res.status >= 400) {
-        api.setMessageReaction("❌", event.messageID);
-        return message.reply(formatError(res));
-      }
-
-      const editedUrl = extractEditedImageUrl(res.data);
-      if (!editedUrl) {
-        api.setMessageReaction("❌", event.messageID);
-        return message.reply("No image URL was found in the API's response.");
-      }
-
-      const cacheDir = path.join(__dirname, "cache");
-      await fs.ensureDir(cacheDir);
-      const filePath = path.join(cacheDir, `edit_${Date.now()}.jpg`);
-      const buffer = await downloadToBuffer(editedUrl);
-      await fs.writeFile(filePath, buffer);
-
-      await message.reply({
-        body: "Here's your edited image.",
-        attachment: fs.createReadStream(filePath)
-      });
-
-      api.setMessageReaction("✅", event.messageID);
-      fs.remove(filePath).catch(() => {});
-    } catch (e) {
-      console.error("[EDIT COMMAND ERROR]:", e?.response?.data || e.message || e);
-      api.setMessageReaction("❌", event.messageID);
-      message.reply("An error occurred while editing the image.");
+    if (!prompt) {
+      return api.sendMessage(
+        addMode
+          ? "⚠️ Usage: qwen -a <text> (reply to an image)"
+          : "⚠️ Please provide some text for the image.",
+        threadID,
+        messageID
+      );
     }
+
+    const imgUrl = messageReply?.attachments?.[0]?.url;
+    if (!imgUrl) {
+      return api.sendMessage("⚠️ Please reply to an image.", threadID, messageID);
+    }
+
+    if (!addMode) {
+      api.setMessageReaction("⏳", messageID, () => {}, true);
+      return runEditRequest({ api, event, prompt, imageUrls: [imgUrl], reactionMsgID: messageID });
+    }
+
+    api.setMessageReaction("🫩", messageID, () => {}, true);
+
+    api.sendMessage(
+      "📷 𝐀𝐝𝐝 𝐚𝐧𝐨𝐭𝐡𝐞𝐫 𝐩𝐡𝐨𝐭𝐨 — reply to this message with the 2nd image.",
+      threadID,
+      (err, info) => {
+        if (err || !info) {
+          api.setMessageReaction("❌", messageID, () => {}, true);
+          return;
+        }
+        global.GoatBot.onReply.set(info.messageID, {
+          commandName: module.exports.config.name,
+          messageID: info.messageID,
+          author: event.senderID,
+          prompt,
+          imageUrls: [imgUrl],
+          reactionMsgID: messageID
+        });
+      },
+      messageID
+    );
+  },
+
+  onReply: async function ({ api, event, Reply }) {
+    if (event.senderID !== Reply.author) return;
+
+    const secondUrl = event.attachments?.[0]?.url;
+    if (!secondUrl) {
+      return api.sendMessage(
+        "⚠️ Please reply to this message with a photo (image attachment).",
+        event.threadID,
+        event.messageID
+      );
+    }
+
+    api.setMessageReaction("🐣", event.messageID, () => {}, true);
+
+    await runEditRequest({
+      api,
+      event,
+      prompt: Reply.prompt,
+      imageUrls: [...Reply.imageUrls, secondUrl],
+      reactionMsgID: event.messageID
+    });
+
+    global.GoatBot.onReply.delete(Reply.messageID);
   }
 };
+
+const API_BASE = "https://qwen-xdi.onrender.com/edit";
+
+async function runEditRequest({ api, event, prompt, imageUrls, reactionMsgID }) {
+  try {
+    const params = new URLSearchParams();
+    params.set("image", imageUrls[0]);
+    if (imageUrls[1]) params.set("image2", imageUrls[1]);
+    params.set("prompt", prompt);
+
+    const res = await axios.get(`${API_BASE}?${params.toString()}`, { timeout: 120000 });
+    const data = res.data;
+    const finalImageURL = data && data.success ? data.imageUrl : null;
+
+    if (!finalImageURL) {
+      const errMsg = (data && (data.error || data.message)) || "Unknown reason";
+      api.setMessageReaction("⚠️", reactionMsgID, () => {}, true);
+      return api.sendMessage(`❌ API Error: ${errMsg}`, event.threadID, event.messageID);
+    }
+
+    const cacheDir = path.join(__dirname, "cache");
+    fs.mkdirSync(cacheDir, { recursive: true });
+
+    const imageResponse = await axios.get(finalImageURL, {
+      responseType: "arraybuffer",
+      timeout: 60000
+    });
+
+    const ext = finalImageURL.split("?")[0].split(".").pop().toLowerCase();
+    const safeExt = ["jpg", "jpeg", "png", "webp"].includes(ext) ? ext : "png";
+    const filePath = path.join(cacheDir, `${Date.now()}.${safeExt}`);
+    fs.writeFileSync(filePath, Buffer.from(imageResponse.data));
+
+    api.setMessageReaction("🧃", reactionMsgID, () => {}, true);
+    api.sendMessage(
+      {
+        body: "> 🎀 𝐃𝐨𝐧𝐞",
+        attachment: fs.createReadStream(filePath)
+      },
+      event.threadID,
+      () => fs.unlinkSync(filePath)
+    );
+  } catch (err) {
+    console.error("QWEN EDIT Error:", err?.response?.data || err.message);
+    api.setMessageReaction("❌", reactionMsgID, () => {}, true);
+    api.sendMessage("❌ Error while processing the image.", event.threadID, event.messageID);
+  }
+}

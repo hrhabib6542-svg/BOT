@@ -1,114 +1,73 @@
-const axios = require("axios");
 const fs = require("fs-extra");
-const path = require("path");
+const axios = require("axios");
+const { loadImage, createCanvas } = require("canvas");
+
+const JAIL_URL = "https://i.ibb.co.com/84f1gzcJ/pngtree-jail-prison-bars-vector-png-image-6665843.png";
 
 module.exports = {
   config: {
     name: "jail",
-    aliases: ["prison"],
     version: "1.0.0",
-    author: "Toshiro Editz",
+    author: "EryXenX",
     countDown: 5,
     role: 0,
-    shortDescription: {
-      en: "Apply jail effect"
-    },
-    longDescription: {
-      en: "Apply jail effect to a mentioned or replied user's PFP"
+    description: {
+      en: "Put someone behind jail bars",
+      bn: "কাউকে জেলের গ্রিলের পেছনে বসাও",
+      hi: "Kisi ko jail ke peeche daalo",
+      tl: "Ilagay ang isa sa likod ng rehas ng bilangguan",
+      ar: "ضع شخصاً خلف قضبان السجن"
     },
     category: "fun",
-    guide: {
-      en: "{pn} @mention\n{pn} (reply to a user)"
-    }
+    guide: { en: "{pn} @mention or reply to a message" }
   },
 
-  onStart: async function ({ api, event }) {
-    const cacheDir = path.join(__dirname, "cache");
-    await fs.ensureDir(cacheDir);
+  langs: {
+    en: { noMention: "❌ | Mention someone or reply to a message!", error: "❌ | Failed to generate. Try again." },
+    bn: { noMention: "❌ | কাউকে mention করুন বা reply করুন!", error: "❌ | তৈরি করতে সমস্যা হয়েছে।" },
+    hi: { noMention: "❌ | Kisi ko mention karein ya reply karein!", error: "❌ | Banana fail hua." },
+    tl: { noMention: "❌ | Mag-mention ng isa o mag-reply!", error: "❌ | Hindi nagawa." },
+    ar: { noMention: "❌ | أشر إلى شخص أو رد على رسالة!", error: "❌ | فشل الإنشاء." }
+  },
 
-    let filePath;
-
+  onStart: async function ({ event, message, getLang }) {
     try {
-      let uid;
+      const mentionID = Object.keys(event.mentions)[0] || (event.messageReply ? event.messageReply.senderID : null);
+      if (!mentionID) return message.reply(getLang("noMention"));
 
-      if (
-        event.mentions &&
-        Object.keys(event.mentions).length > 0
-      ) {
-        uid = Object.keys(event.mentions)[0];
-      } else if (event.messageReply?.senderID) {
-        uid = event.messageReply.senderID;
-      } else {
-        return api.sendMessage(
-          "⛓️ Please mention or reply to a user.",
-          event.threadID,
-          event.messageID
-        );
-      }
+      const ts = Date.now();
+      const jailPath = __dirname + "/cache/jail_base_" + ts + ".png";
+      const avatarPath = __dirname + "/cache/jail_avt_" + ts + ".jpg";
+      const outputPath = __dirname + "/cache/jail_out_" + ts + ".jpg";
 
-      const token =
-        "6628568379%7Cc1e620fa708a1d5696fb991c1bde5662";
+      const [jailRes, avatarRes] = await Promise.all([
+        axios.get(JAIL_URL, { responseType: "arraybuffer" }),
+        axios.get("https://graph.facebook.com/" + mentionID + "/picture?height=720&width=720&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662", { responseType: "arraybuffer" })
+      ]);
 
-      const image =
-        `https://graph.facebook.com/${uid}/picture` +
-        `?width=720&height=720` +
-        `&access_token=${token}`;
+      fs.writeFileSync(jailPath, Buffer.from(jailRes.data));
+      fs.writeFileSync(avatarPath, Buffer.from(avatarRes.data));
 
-      const apiUrl =
-        `https://toshiro-api-editz6t9.vercel.app/api/canvas/jail` +
-        `?image=${encodeURIComponent(image)}`;
+      const jailImg = await loadImage(jailPath);
+      const avatarImg = await loadImage(avatarPath);
 
-      filePath = path.join(
-        cacheDir,
-        `jail_${uid}_${Date.now()}.png`
-      );
+      const W = jailImg.width;
+      const H = jailImg.height;
+      const canvas = createCanvas(W, H);
+      const ctx = canvas.getContext("2d");
 
-      const response = await axios.get(apiUrl, {
-        responseType: "arraybuffer",
-        timeout: 60000,
-        maxRedirects: 5,
-        headers: {
-          "User-Agent": "Mozilla/5.0",
-          "Accept": "image/png,image/jpeg,image/*,*/*"
-        }
-      });
+      ctx.drawImage(avatarImg, 0, 0, W, H);
+      ctx.drawImage(jailImg, 0, 0, W, H);
 
-      if (!response.data) {
-        throw new Error("Empty response from Jail API.");
-      }
+      fs.writeFileSync(outputPath, canvas.toBuffer("image/jpeg", { quality: 0.92 }));
 
-      await fs.writeFile(
-        filePath,
-        Buffer.from(response.data)
-      );
+      await message.reply({ body: "🔒 You are in jail!", attachment: fs.createReadStream(outputPath) });
 
-      await api.sendMessage(
-        {
-          attachment: fs.createReadStream(filePath)
-        },
-        event.threadID,
-        event.messageID
-      );
+      [jailPath, avatarPath, outputPath].forEach(p => { try { fs.unlinkSync(p); } catch (_) {} });
 
-    } catch (error) {
-      console.error(
-        "Jail:",
-        error.response?.status || error.message
-      );
-
-      await api.sendMessage(
-        `❌ Failed to generate jail image.\n\n${error.response?.status || error.message}`,
-        event.threadID,
-        event.messageID
-      );
-
-    } finally {
-      if (
-        filePath &&
-        await fs.pathExists(filePath)
-      ) {
-        await fs.remove(filePath).catch(() => {});
-      }
+    } catch (err) {
+      console.error("Jail Error:", err);
+      message.reply(getLang("error"));
     }
   }
 };

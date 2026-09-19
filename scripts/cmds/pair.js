@@ -1,140 +1,159 @@
-const { getStreamFromURL } = global.utils;
-
-function getRandomItem(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-async function getSafeName(usersData, userID) {
-  let name = await usersData.getName(userID);
-  if (!name) {
-    await usersData.refreshInfo(userID);
-    name = await usersData.getName(userID);
-  }
-  return name || "Unknown User";
-}
-
-function generateLovePercentages(base) {
-  return [
-    `${base}`,
-    `${(base + Math.random()).toFixed(2)}`,
-    `${Math.min(100, base + 5)}`,
-    `${Math.max(0, base - 5)}`,
-    `${(Math.random() * 100).toFixed(2)}`,
-    `${100 + Math.floor(Math.random() * 20)}`,
-    `${-Math.floor(Math.random() * 20)}`
-  ];
-}
-
-function getLoveLabel(value) {
-  const v = parseFloat(value);
-  if (v < 0) return "💔 Toxic vibes";
-  if (v <= 20) return "😶 No spark";
-  if (v <= 40) return "🌱 Just starting";
-  if (v <= 60) return "😊 Friendly feelings";
-  if (v <= 80) return "💕 Sweet connection";
-  if (v <= 100) return "🔥 True love";
-  return "💞 Beyond limits!";
-}
+const fs = require("fs-extra");
+const axios = require("axios");
+const { loadImage, createCanvas } = require("canvas");
 
 module.exports = {
   config: {
     name: "pair",
-    version: "2.1",
-    author: "Toshiro Editz",
-    countDown: 10,
+    version: "1.0.0",
+    author: "EryXenX",
+    countDown: 5,
     role: 0,
     description: {
-      en: "Pair two users together with love percentage"
+      en: "Find today's random couple in the group",
+      bn: "আজকের random জুটি খোঁজো",
+      hi: "Aaj ka random pair dhundho",
+      tl: "Hanapin ang random na pares ngayon",
+      ar: "ابحث عن زوج اليوم العشوائي"
     },
-    category: "love",
-    guide: {
-      en:
-        "{pn}\n" +
-        "{pn} @user\n" +
-        "{pn} @user1 @user2\n" +
-        "{pn} <uid1> <uid2>\n" +
-        "(reply also supported)"
+    category: "fun",
+    guide: { en: "{pn}" }
+  },
+
+  langs: {
+    en: {
+      noMembers: "❌ | Not enough members in this group!",
+      error: "❌ | Failed to generate. Try again.",
+      result: "💕 Today's Couple 💕\n\n👤 %1\n💑 &\n👤 %2\n\n❤️ Compatibility: %3%\n\n🔁 New pair tomorrow!"
+    },
+    bn: {
+      noMembers: "❌ | গ্রুপে যথেষ্ট সদস্য নেই!",
+      error: "❌ | তৈরি করতে সমস্যা হয়েছে।",
+      result: "💕 আজকের জুটি 💕\n\n👤 %1\n💑 &\n👤 %2\n\n❤️ মিল: %3%\n\n🔁 কাল নতুন জুটি!"
+    },
+    hi: {
+      noMembers: "❌ | Group mein kaafi members nahi hain!",
+      error: "❌ | Banana fail hua.",
+      result: "💕 Aaj ka Pair 💕\n\n👤 %1\n💑 &\n👤 %2\n\n❤️ Compatibility: %3%\n\n🔁 Kal naya pair!"
+    },
+    tl: {
+      noMembers: "❌ | Hindi sapat ang mga miyembro sa grupo!",
+      error: "❌ | Hindi nagawa.",
+      result: "💕 Pares Ngayon 💕\n\n👤 %1\n💑 &\n👤 %2\n\n❤️ Compatibility: %3%\n\n🔁 Bagong pares bukas!"
+    },
+    ar: {
+      noMembers: "❌ | لا يوجد أعضاء كافيون في المجموعة!",
+      error: "❌ | فشل الإنشاء.",
+      result: "💕 زوج اليوم 💕\n\n👤 %1\n💑 &\n👤 %2\n\n❤️ التوافق: %3%\n\n🔁 زوج جديد غداً!"
     }
   },
 
-  onStart: async function ({ event, threadsData, message, usersData, args }) {
-    const { senderID, threadID, mentions } = event;
-    const mentionIDs = Object.keys(mentions || {});
-    let user1, user2;
+  onStart: async function ({ event, message, getLang, threadsData, usersData, api }) {
+    try {
+      const { threadID, senderID } = event;
+      const threadInfo = await api.getThreadInfo(threadID);
+      const members = threadInfo.participantIDs.filter(id => id !== api.getCurrentUserID() && id !== senderID);
 
-    /* 🔹 Fetch priority */
-    if (event.messageReply) {
-      user1 = senderID;
-      user2 = event.messageReply.senderID;
+      if (members.length < 1) return message.reply(getLang("noMembers"));
 
-    } else if (mentionIDs.length === 2) {
-      [user1, user2] = mentionIDs;
+      const id2 = members[Math.floor(Math.random() * members.length)];
+      const compatibility = Math.floor(Math.random() * 51) + 50;
+      const pair = { id1: senderID, id2, compatibility };
 
-    } else if (mentionIDs.length === 1) {
-      user1 = senderID;
-      user2 = mentionIDs[0];
+      const [user1, user2] = await Promise.all([
+        usersData.get(pair.id1),
+        usersData.get(pair.id2)
+      ]);
+      const name1 = user1.name || "Unknown";
+      const name2 = user2.name || "Unknown";
 
-    } else if (args.length >= 2 && !isNaN(args[0]) && !isNaN(args[1])) {
-      user1 = args[0];
-      user2 = args[1];
+      const ts = Date.now();
+      const outputPath = __dirname + "/cache/pair_out_" + ts + ".jpg";
 
-    } else {
-      /* 🔹 Random pairing (gender based) */
-      const threadData = await threadsData.get(threadID);
-      const members = threadData.members.filter(m => m.inGroup);
+      const [res1, res2] = await Promise.all([
+        axios.get("https://graph.facebook.com/" + pair.id1 + "/picture?height=720&width=720&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662", { responseType: "arraybuffer" }),
+        axios.get("https://graph.facebook.com/" + pair.id2 + "/picture?height=720&width=720&access_token=6628568379%7Cc1e620fa708a1d5696fb991c1bde5662", { responseType: "arraybuffer" })
+      ]);
 
-      const sender = members.find(m => m.userID === senderID);
-      if (!sender?.gender)
-        return message.reply("❌ Please set your gender to use random pair.");
+      const avt1Path = __dirname + "/cache/pair_avt1_" + ts + ".jpg";
+      const avt2Path = __dirname + "/cache/pair_avt2_" + ts + ".jpg";
+      fs.writeFileSync(avt1Path, Buffer.from(res1.data));
+      fs.writeFileSync(avt2Path, Buffer.from(res2.data));
 
-      const partnerList = members.filter(
-        m =>
-          m.userID !== senderID &&
-          m.gender &&
-          m.gender !== sender.gender
-      );
+      const [img1, img2] = await Promise.all([loadImage(avt1Path), loadImage(avt2Path)]);
 
-      if (!partnerList.length)
-        return message.reply("⚠ No suitable partner found.");
+      const W = 800, H = 400;
+      const canvas = createCanvas(W, H);
+      const ctx = canvas.getContext("2d");
 
-      user1 = senderID;
-      user2 = getRandomItem(partnerList).userID;
+      const grad = ctx.createLinearGradient(0, 0, W, H);
+      grad.addColorStop(0, "#ff6b6b");
+      grad.addColorStop(0.5, "#ee0979");
+      grad.addColorStop(1, "#ff6b6b");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, W, H);
+
+      const r = 150;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(r + 30, H / 2, r, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(img1, 30, H / 2 - r, r * 2, r * 2);
+      ctx.restore();
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(W - r - 30, H / 2, r, 0, Math.PI * 2);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(img2, W - r * 2 - 30, H / 2 - r, r * 2, r * 2);
+      ctx.restore();
+
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(r + 30, H / 2, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(W - r - 30, H / 2, r, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.font = "bold 60px serif";
+      ctx.fillStyle = "white";
+      ctx.textAlign = "center";
+      ctx.fillText("❤️", W / 2, H / 2 + 20);
+
+      const barW = 200, barH = 22;
+      const barX = W / 2 - barW / 2;
+      const barY = H - 55;
+      ctx.fillStyle = "rgba(255,255,255,0.3)";
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, barW, barH, 11);
+      ctx.fill();
+
+      ctx.fillStyle = "white";
+      ctx.beginPath();
+      ctx.roundRect(barX, barY, barW * (pair.compatibility / 100), barH, 11);
+      ctx.fill();
+
+      ctx.font = "bold 16px sans-serif";
+      ctx.fillStyle = "white";
+      ctx.textAlign = "center";
+      ctx.fillText(pair.compatibility + "% Compatible", W / 2, barY - 8);
+
+      fs.writeFileSync(outputPath, canvas.toBuffer("image/jpeg", { quality: 0.92 }));
+
+      const body = getLang("result", name1, name2, pair.compatibility);
+
+      await message.reply({ body, attachment: fs.createReadStream(outputPath) });
+
+      [avt1Path, avt2Path, outputPath].forEach(p => { try { fs.unlinkSync(p); } catch (_) {} });
+
+    } catch (err) {
+      console.error("Pair Error:", err);
+      message.reply(getLang("error"));
     }
-
-    /* 🔹 Names */
-    const [name1, name2] = await Promise.all([
-      getSafeName(usersData, user1),
-      getSafeName(usersData, user2)
-    ]);
-
-    /* 🔹 Graph API avatars */
-    const avatar1 =
-      `https://graph.facebook.com/${user1}/picture?width=512&height=512&access_token=6628568379|c1e620fa708a1d5696fb991c1bde5662`;
-
-    const avatar2 =
-      `https://graph.facebook.com/${user2}/picture?width=512&height=512&access_token=6628568379|c1e620fa708a1d5696fb991c1bde5662`;
-
-    /* 🔹 Love calculation */
-    const base = Math.floor(Math.random() * 100) + 1;
-    const rate = getRandomItem(generateLovePercentages(base));
-    const label = getLoveLabel(rate);
-
-    const body =
-      `💘 𝗣𝗔𝗜𝗥 𝗠𝗔𝗧𝗖𝗛 💘\n\n` +
-      `❤️ @${name1} × @${name2}\n` +
-      `💖 Love Rate: ${rate}%\n` +
-      `${label}`;
-
-    return message.reply({
-      body,
-      mentions: [
-        { tag: `@${name1}`, id: user1 },
-        { tag: `@${name2}`, id: user2 }
-      ],
-      attachment: [
-        await getStreamFromURL(avatar1),
-        await getStreamFromURL(avatar2)
-      ]
-    });
   }
 };

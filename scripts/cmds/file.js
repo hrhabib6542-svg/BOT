@@ -1,73 +1,40 @@
-const fs = require("fs-extra");
+const fs = require("fs");
 const path = require("path");
 
 module.exports = {
-        config: {
-                name: "file",
-                aliases: [],
-                version: "1.2",
-                author: "NeoKEX",
-                countDown: 5,
-                role: 4,
-                description: {
-                        vi: "Xem mã nguồn của một lệnh cụ thể",
-                        en: "View the source code of a specific command"
-                },
-                category: "system",
-                guide: {
-                        vi: "   {pn} <tên lệnh>: xem mã nguồn của lệnh",
-                        en: "   {pn} <command name>: view source code of the command"
-                }
-        },
+  config: {
+    name: "filecmd",
+    aliases: ["file"],
+    version: "1.0",
+    author: "nexo_here",
+    countDown: 5,
+    role: 2,
+    shortDescription: "View code of a command",
+    longDescription: "View the raw source code of any command in the commands folder",
+    category: "owner",
+    guide: "{pn} <commandName>"
+  },
 
-        onStart: async function ({ args, message }) {
-                if (!args.length) {
-                        return message.SyntaxError();
-                }
+  onStart: async function ({ args, message }) {
+    const cmdName = args[0];
+    if (!cmdName) return message.reply("❌ | Please provide the command name.\nExample: filecmd fluxsnell");
 
-                const commandName = args[0].toLowerCase();
-                const allCommands = global.GoatBot.commands;
+    const cmdPath = path.join(__dirname, `${cmdName}.js`);
+    if (!fs.existsSync(cmdPath)) return message.reply(`❌ | Command "${cmdName}" not found in this folder.`);
 
-                let command = allCommands.get(commandName);
-                if (!command) {
-                        const cmd = [...allCommands.values()].find((c) =>
-                                (c.config.aliases || []).includes(commandName)
-                        );
-                        command = cmd;
-                }
+    try {
+      const code = fs.readFileSync(cmdPath, "utf8");
 
-                if (!command) {
-                        return message.reply("❌ Command not found");
-                }
+      if (code.length > 19000) {
+        return message.reply("⚠️ | This file is too large to display.");
+      }
 
-                const actualCommandName = command.config.name;
-                
-                if (!/^[a-zA-Z0-9_-]+$/.test(actualCommandName)) {
-                        return message.reply("❌ Invalid command name");
-                }
-
-                const allowedDir = path.resolve(__dirname);
-                const filePath = path.resolve(__dirname, `${actualCommandName}.js`);
-                
-                if (!filePath.startsWith(allowedDir)) {
-                        return message.reply("❌ Access denied: Path traversal detected");
-                }
-
-                try {
-                        if (!fs.existsSync(filePath)) {
-                                return message.reply("❌ File not found");
-                        }
-
-                        const content = fs.readFileSync(filePath, "utf-8");
-                        
-                        if (content.length > 4000) {
-                                return message.reply(`${content.substring(0, 3997)}...`);
-                        }
-                        
-                        return message.reply(`${content}`);
-
-                } catch (err) {
-                        return message.reply(`❌ Error: ${err.message}`);
-                }
-        }
+      return message.reply({
+        body: `📄 | Source code of "${cmdName}.js":\n\n${code}`
+      });
+    } catch (err) {
+      console.error(err);
+      return message.reply("❌ | Error reading the file.");
+    }
+  }
 };
