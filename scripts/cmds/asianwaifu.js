@@ -3,7 +3,7 @@ const path = require("path");
 const axios = require("axios");
 const { createCanvas, loadImage } = require("canvas");
 
-const OWNER_UID = "100073798820230";
+const OWNER_UID = "61566973860444";
 const WATERMARK_TEXT = "DI-ABLO";
 
 const dataDir = path.join(__dirname, "..", "..", "data");
